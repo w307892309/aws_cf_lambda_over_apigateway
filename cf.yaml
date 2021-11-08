@@ -1,0 +1,87 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'AWS CloudFormation template. This template creates an Amazon Lambda
+  function and an Amazome APIGateway HTTP API. Lambda function is triggered by HTTP API.'
+Resources:
+  IAMUser:
+    Type: AWS::IAM::User
+    Properties: 
+      ManagedPolicyArns: 
+        - arn:aws:iam::aws:policy/AWSPriceListServiceFullAccess
+  IAMAccessKey:
+    Type: AWS::IAM::AccessKey
+    Properties: 
+      Status: Active
+      UserName: !Ref IAMUser
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - sts:AssumeRole
+            Principal:
+              Service: lambda.amazonaws.com
+  LambdaTest:
+    Type: AWS::Lambda::Function
+### Need to correct ### start ###
+    Properties:
+      Code: 
+        S3Bucket: backet-name
+        S3Key: code-archive.zip
+### Need to correct ### end ###
+      Handler: lambda_function.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Runtime: python3.8
+      Environment: 
+        Variables:
+          a_key: !Ref IAMAccessKey
+          s_key: !GetAtt IAMAccessKey.SecretAccessKey
+  APIGatewayAPI:
+    Type: AWS::ApiGatewayV2::Api
+    Properties: 
+      Name: ToLambda
+      ProtocolType: HTTP
+      RouteSelectionExpression: $request.method $request.path
+  APIGatewayStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties: 
+      ApiId: !Ref APIGatewayAPI
+      AutoDeploy: True
+      StageName: $default
+  LambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties: 
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt LambdaTest.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: 
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api"
+            - ":"
+            - Ref: AWS::Region
+            - ":"
+            - Ref: AWS::AccountId
+            - ":"
+            - Ref: APIGatewayAPI
+            - "/*/*/"
+  APIGatewayIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties: 
+      ApiId: !Ref APIGatewayAPI
+      ConnectionType: INTERNET
+      IntegrationMethod: POST
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt LambdaTest.Arn
+      PayloadFormatVersion: 2.0
+  APIGatewayRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref APIGatewayAPI
+      RouteKey: 'ANY /'
+      Target: !Join
+        - /
+        - - integrations
+          - !Ref APIGatewayIntegration
